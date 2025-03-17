@@ -1,4 +1,6 @@
-import { useRef } from "react";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import { combineReducers, configureStore } from "@reduxjs/toolkit";
 import {
   TypedUseSelectorHook,
@@ -6,8 +8,8 @@ import {
   useSelector,
   Provider,
 } from "react-redux";
-import globalReducer from "@/state";
-import { api } from "@/state/api";
+import globalReducer from "@/app/state";
+import { api } from "@/app/state/api";
 import { setupListeners } from "@reduxjs/toolkit/query";
 
 import {
@@ -23,68 +25,71 @@ import {
 import { PersistGate } from "redux-persist/integration/react";
 import createWebStorage from "redux-persist/lib/storage/createWebStorage";
 
-/* REDUX PERSISTENCE */
+/* Fonction pour éviter d'accéder au localStorage pendant le SSR */
 const createNoopStorage = () => {
   return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
     getItem(_key: any) {
-      return Promise.resolve(null);
+      return Promise.resolve<string | null>(null);
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setItem(_key: any, value: any) {
       return Promise.resolve(value);
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
     removeItem(_key: any) {
       return Promise.resolve();
     },
   };
 };
 
-const storage =
-  typeof window === "undefined"
-    ? createNoopStorage()
-    : createWebStorage("local");
+/* Hook pour gérer le stockage de manière sécurisée */
+const useStorage = () => {
+  const [storage, setStorage] = useState(createNoopStorage());
 
-const persistConfig = {
-  key: "root",
-  storage,
-  whitelist: ["global"],
+  useEffect(() => {
+    setStorage(createWebStorage("local"));
+  }, []);
+
+  return storage;
 };
+
+/* Redux Persist Configuration */
 const rootReducer = combineReducers({
   global: globalReducer,
   [api.reducerPath]: api.reducer,
 });
-const persistedReducer = persistReducer(persistConfig, rootReducer);
 
-/* REDUX STORE */
-export const makeStore = () => {
-  return configureStore({
-    reducer: persistedReducer,
-    middleware: (getDefaultMiddleware) =>
-      getDefaultMiddleware({
-        serializableCheck: {
-          ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
-        },
-      }).concat(api.middleware),
-  });
-};
-
-/* REDUX TYPES */
-export type AppStore = ReturnType<typeof makeStore>;
-export type RootState = ReturnType<AppStore["getState"]>;
-export type AppDispatch = AppStore["dispatch"];
-export const useAppDispatch = () => useDispatch<AppDispatch>();
-export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;
-
-/* PROVIDER */
+/* Redux Provider avec gestion du stockage */
 export default function StoreProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const storeRef = useRef<AppStore>();
+  const storage = useStorage();
+
+  const persistConfig = {
+    key: "root",
+    storage,
+    whitelist: ["global"],
+  };
+
+  const persistedReducer = persistReducer(persistConfig, rootReducer);
+  const storeRef = useRef<ReturnType<typeof configureStore> | null>(null);
+
   if (!storeRef.current) {
-    storeRef.current = makeStore();
+    storeRef.current = configureStore({
+      reducer: persistedReducer,
+      middleware: (getDefaultMiddleware) =>
+        getDefaultMiddleware({
+          serializableCheck: {
+            ignoredActions: [FLUSH, REHYDRATE, PAUSE, PERSIST, PURGE, REGISTER],
+          },
+        }).concat(api.middleware),
+    });
     setupListeners(storeRef.current.dispatch);
   }
+
   const persistor = persistStore(storeRef.current);
 
   return (
@@ -95,3 +100,9 @@ export default function StoreProvider({
     </Provider>
   );
 }
+
+/* Hooks Redux */
+export type RootState = ReturnType<typeof rootReducer>;
+export type AppDispatch = ReturnType<typeof configureStore>["dispatch"];
+export const useAppDispatch = () => useDispatch<AppDispatch>();
+export const useAppSelector: TypedUseSelectorHook<RootState> = useSelector;

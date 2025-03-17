@@ -1,7 +1,7 @@
 "use client";
 
 import { useAppDispatch, useAppSelector } from "@/app/redux";
-import { setIsSidebarCollapsed } from "@/state";
+import { setIsSidebarCollapsed } from "@/app/state";
 import {
   Archive,
   CircleDollarSign,
